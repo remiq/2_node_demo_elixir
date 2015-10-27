@@ -125,3 +125,34 @@ we didn't connect to private node first. Let's try it by restarting public iex.
 We listed all connected nodes (1) and private is not connected. We called
 GenServer with atom name of node (2) and it connected automatically as we see
 result and connected node on list (3).
+
+## Step 3 - two servers, two vms, raw tcp
+
+Warning: In this step you connect two Erlang nodes using raw TCP connection.
+This is very insecure and will allow any man-in-the-middle to connect to both
+your VMs and execute arbitrary commands.
+
+Git clone whole project on both machines. Public machine will have private code
+to use client API (ie. get_data), but it will not use server callbacks.
+
+Start private iex on server that has public IP.
+
+    /private# iex --name private@kyon.pl --cookie OUSXEQHLTDKZGXXTAKHZ -S mix
+    Erlang/OTP 18 [erts-7.0] [source] [64-bit] [async-threads:10] [kernel-poll:false]
+
+
+    10:28:36.924 [info]  SecretService started
+    Interactive Elixir (1.1.0) - press Ctrl+C to exit (type h() ENTER for help)
+    iex(private@kyon.pl)1>
+
+Start public iex in local console.
+
+    public$ iex --name public@NEWBORN --cookie OUSXEQHLTDKZGXXTAKHZ -S mix                                                                                                   
+    Erlang/OTP 18 [erts-7.1] [source] [64-bit] [smp:8:8] [async-threads:10] [hipe] [kernel-poll:false]
+
+    Interactive Elixir (1.1.0) - press Ctrl+C to exit (type h() ENTER for help)
+    iex(public@NEWBORN)1> Node.connect :"private@kyon.pl"
+    true
+
+    iex(public@NEWBORN)2> Private.SecretService.get_data :"private@kyon.pl"
+    "secret data"
