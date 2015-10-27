@@ -2,6 +2,8 @@
 
 Example of connecting two Elixir nodes throu SSH tunnel.
 
+Basic idea:
+
 ![
     node Public {
       package ErlangVM1 {
@@ -135,6 +137,12 @@ your VMs and execute arbitrary commands.
 Git clone whole project on both machines. Public machine will have private code
 to use client API (ie. get_data), but it will not use server callbacks.
 
+UPDATE: Public machine will not have private code after release. Please check
+step 5.
+
+We are no longer using `--sname private`, which is short name of node. Since now
+we are on two servers, we use `--name private@kyon.pl`.
+
 Start private iex on server that has public IP.
 
     /private# iex --name private@kyon.pl --cookie OUSXEQHLTDKZGXXTAKHZ -S mix
@@ -156,3 +164,110 @@ Start public iex in local console.
 
     iex(public@NEWBORN)2> Private.SecretService.get_data :"private@kyon.pl"
     "secret data"
+
+How do we test insecurity of this step?
+Start tcpdump on public server and retry whole step.
+
+    /public$ sudo tcpdump dst kyon.pl -w k.dump
+
+Open `k.dump` file. You will see binary data with plain text modules and
+method names. It does not prove cookie is unencrypted (because it's not
+plaintext), but it shows connection is not encrypted.
+
+## Step 4 - two servers, two vms, IPsec
+
+(untested)
+
+Using [this tutorial](http://7u83.cauwersin.com/2014-04-06-creating-ipsec-transport-between-freebsd-and-linux)
+we set-up secure connection between both nodes. Elixir does not change here.
+
+## Step 5 - using releases
+
+Release private/
+
+    /private$ MIX_ENV=prod mix release
+
+Copy `/private/rel/private/releases/0.0.1/private.tar.gz` to remote server, unpack, start with console
+
+    cd remote/private/
+    tar xvzf private.tar.gz
+    /private# bin/private console
+    iex(private@127.0.0.1)1> Node.get_cookie
+    :private
+
+As we see, neither name of node nor cookie is defined. Edit `releases/0.0.1/vm.args`.
+
+    ## Name of the node
+    -name private@kyon.pl
+
+    ## Cookie for distributed erlang
+    -setcookie OUSXEQHLTDKZGXXTAKHZ
+
+Start private, again with console.
+
+    iex(private@kyon.pl)1> Node.get_cookie
+    :OUSXEQHLTDKZGXXTAKHZ
+
+It works now, but every release we will need to change it in `vm.args`. We have
+to configure it before release, but I don't know where.
+
+Application works in console, so we can start it properly.
+
+    /private# bin/private start
+
+And connect using remote_console
+
+    iex(private@kyon.pl)1> Private.SecretService.  
+    get_data/0      get_data/1      start_link/1    
+    iex(private@kyon.pl)1> Private.SecretService.get_data
+    "secret data"
+    iex(private@kyon.pl)2> Private.SecretService.get_data :"private@kyon.pl"
+    "secret data"
+
+Now repeat all steps for public.
+
+    iex(public@NEWBORN)1> Node.get_cookie
+    :OUSXEQHLTDKZGXXTAKHZ
+    iex(public@NEWBORN)2> Node.connect :"private@kyon.pl"
+    true
+    iex(public@NEWBORN)3> Private.SecretService.get_data
+    ** (UndefinedFunctionError) undefined function: Private.SecretService.get_data/0 (module Private.SecretService is not available)
+        Private.SecretService.get_data()
+
+Cookie is correct, nodes connect to each other, but module Private.SecretService
+is not loaded here:
+
+    def application do
+      [applications: [:logger]]
+    end
+
+But if we add :private, it will start local private service. What to do? We either
+add configuration that allow us not to start private, or we create client API in
+:public. We will do the second way.
+
+    iex(public@NEWBORN)1> Public.PrivateAPI.get_data
+    "secret data"
+
+## Summary
+
+Final structure:
+
+![
+    node Public {
+      package ErlangVM1 {
+        component IEx
+        component PublicService
+        interface PrivateAPI
+        IEx -- PublicService
+        PublicService -- PrivateAPI
+      }
+    }
+    node Private {
+      package ErlangVM2 {
+        component SecretService
+      }
+      database Secret
+      SecretService -- Secret
+    }
+    PrivateAPI ..> SecretService : IPsec\n tunnel
+](http://plantuml.com:80/plantuml/png/TK-z2eCm4DvzYdi1XNRiKEZWaA4W29swdETLGkqfCKgX-EwrHc8LpN21x-_kaofdIDgir0IV0CPN8psnO8XDYLBShWVF053rgYjXiQ3YzmRgeb8sdIRsl1RBve4qh3AwGykNH7bo288mt74kq56s3kY3UShOnYbswnmtwwHCXkroVJ_zELhCiE59DA4Bn--qFzOvvriXYiuhmmbKqZ3T1MmhmkKN)

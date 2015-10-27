@@ -27,6 +27,9 @@ defmodule Public.Mixfile do
   #
   # Type "mix help deps" for more examples and options
   defp deps do
-    [{:private, path: "../private"}]
+    [
+      {:private, path: "../private"},
+      {:exrm, "~> 0.19"}
+    ]
   end
 end
